@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>こどものこえ・きろくアプリ（10種の動物版）</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f7f9fa;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .card {
+            background: white;
+            border-radius: 24px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.05);
+            padding: 32px;
+            width: 100%;
+            max-width: 340px;
+            text-align: center;
+            border: 4px solid #eef2f5;
+        }
+        #hiddenCanvas {
+            display: none;
+        }
+        
+        .illustration-box {
+            font-size: 100px;
+            margin-bottom: 8px;
+            display: block;
+            min-height: 120px;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.2s ease;
+            transform-origin: bottom center;
+        }
+        
+        .illustration-box:hover {
+            animation: purun 0.6s ease-in-out;
+        }
+        
+        .illustration-box:active {
+            transform: scale(0.9);
+        }
+
+        @keyframes purun {
+            0%   { transform: scale(1.0, 1.0) translatey(0); }
+            15%  { transform: scale(1.1, 0.9) translatey(4px); }
+            40%  { transform: scale(0.9, 1.1) translatey(-12px); }
+            60%  { transform: scale(1.05, 0.95) translatey(2px); }
+            80%  { transform: scale(0.98, 1.02) translatey(-1px); }
+            100% { transform: scale(1.0, 1.0) translatey(0); }
+        }
+
+        .word-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+        }
+        .word-label {
+            font-size: 28px;
+            font-weight: bold;
+            color: #333;
+            letter-spacing: 2px;
+        }
+        .btn {
+            border: none;
+            padding: 14px 28px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            width: 80%;
+            margin: 8px 0;
+            transition: all 0.2s ease;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .btn-record {
+            background-color: #ff4d4d;
+            color: white;
+        }
+        .btn-record.recording {
+            background-color: #333;
+            animation: pulse 1.5s infinite;
+        }
+        .btn-play {
+            background-color: #10ac84;
+            color: white;
+            display: none;
+        }
+        .btn-save {
+            background-color: #0984e3;
+            color: white;
+            display: none;
+        }
+        .btn-next {
+            background-color: #f0f0f0;
+            color: #555;
+            font-size: 14px;
+            padding: 8px 16px;
+            margin-top: 24px;
+            width: auto;
+            border: 1px solid #ddd;
+        }
+        .time-counter {
+            font-size: 16px;
+            color: #555;
+            font-weight: bold;
+            margin: 4px 0 12px 0;
+            display: none;
+            font-variant-numeric: tabular-nums;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.6; }
+            100% { opacity: 1; }
+        }
+        #status {
+            margin-top: 12px;
+            font-size: 14px;
+            color: #777;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <div id="illustration" class="illustration-box" title="タップでお手本をきく">🐶</div>
+        
+        <div class="word-container">
+            <div id="wordLabel" class="word-label">い ぬ</div>
+        </div>
+
+        <button id="recordBtn" class="btn btn-record">ろくおんする</button>
+        <button id="playBtn" class="btn btn-play">こえをきく</button>
+        
+        <div id="timeCounter" class="time-counter">0:00 / 0:00</div>
+
+        <button id="saveBtn" class="btn btn-save">アルバムに ほぞん</button>
+        
+        <div id="status">ボタンをおしてね</div>
+
+        <button id="nextBtn" class="btn btn-next">ちがう動物にする</button>
+    </div>
+
+    <canvas id="hiddenCanvas" width="400" height="400"></canvas>
+
+    <script>
+        // --- 🎉 動物データを10種類に拡充しました ---
+        const animals = [
+            { emoji: '🐶', name: 'い ぬ', reading: 'いぬ' },
+            { emoji: '🐱', name: 'ね こ', reading: 'ねこ' },
+            { emoji: '🐘', name: 'ぞ う', reading: 'ぞう' },
+            { emoji: '🦁', name: 'ら い お ん', reading: 'らいおん' },
+            { emoji: '🐵', name: 'さ る', reading: 'さる' },
+            { emoji: '🐻', name: 'く ま', reading: 'くま' },
+            { emoji: '🐰', name: 'う さ ぎ', reading: 'うさぎ' },
+            { emoji: '🐼', name: 'ぱ ん だ', reading: 'ぱんだ' },
+            { emoji: '🐸', name: 'か え る', reading: 'かえる' },
+            { emoji: '🐷', name: 'ぶ た', reading: 'ぶた' }
+        ];
+
+        let currentAnimal;
+        let mediaRecorder;
+        let audioChunks = [];
+        let audioUrl = null;
+        let jaVoice = null;
+        
+        let canvasRecorder;
+        let videoChunks = [];
+        let currentAudio = null;
+
+        const illustrationEl = document.getElementById('illustration');
+        const wordLabelEl = document.getElementById('wordLabel');
+        const recordBtn = document.getElementById('recordBtn');
+        const playBtn = document.getElementById('playBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const timeCounterEl = document.getElementById('timeCounter');
+        const statusText = document.getElementById('status');
+        const canvas = document.getElementById('hiddenCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function loadVoices() {
+            const voices = speechSynthesis.getVoices();
+            jaVoice = voices.find(voice => voice.lang === 'ja-JP' && voice.name.includes('Google')) || 
+                      voices.find(voice => voice.lang === 'ja-JP' && voice.name.includes('Kyoko')) ||
+                      voices.find(voice => voice.lang === 'ja-JP');
+        }
+        loadVoices();
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = loadVoices;
+        }
+
+        function showRandomAnimal() {
+            if (audioUrl) {
+                URL.revokeObjectURL(audioUrl);
+                audioUrl = null;
+            }
+            audioChunks = [];
+            videoChunks = [];
+            playBtn.style.display = "none";
+            saveBtn.style.display = "none";
+            timeCounterEl.style.display = "none";
+            recordBtn.textContent = "ろくおんする";
+            recordBtn.classList.remove('recording');
+            statusText.textContent = "ボタンをおしてね";
+
+            currentAnimal = animals[Math.floor(Math.random() * animals.length)];
+            illustrationEl.textContent = currentAnimal.emoji;
+            wordLabelEl.textContent = currentAnimal.name;
+        }
+
+        illustrationEl.addEventListener('click', () => {
+            if (!currentAnimal) return;
+            const utterance = new SpeechSynthesisUtterance(currentAnimal.reading);
+            if (jaVoice) utterance.voice = jaVoice;
+            else utterance.lang = 'ja-JP'; 
+            utterance.rate = 0.85; 
+            utterance.pitch = 1.1; 
+            speechSynthesis.speak(utterance);
+        });
+
+        showRandomAnimal();
+        nextBtn.addEventListener('click', showRandomAnimal);
+
+        // 動画用のCanvas描画
+        let animationId;
+        function drawCanvas(angle = 0) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#f7f9fa';
+            ctx.beginPath();
+            ctx.arc(200, 200, 180, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.font = '120px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            const bounce = Math.sin(angle) * 10;
+            ctx.fillText(currentAnimal.emoji, 200, 160 + bounce);
+
+            ctx.font = 'bold 36px Arial';
+            ctx.fillStyle = '#333333';
+            ctx.fillText(currentAnimal.name, 200, 280);
+
+            ctx.font = '20px Arial';
+            ctx.fillStyle = '#ff4d4d';
+            if (Math.floor(angle * 2) % 2 === 0) {
+                ctx.fillText('● ろくおんちゅう', 200, 340);
+            }
+
+            animationId = requestAnimationFrame(() => drawCanvas(angle + 0.1));
+        }
+
+        // 録音＆動画合成ロジック
+        recordBtn.addEventListener('click', async () => {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+                canvasRecorder.stop();
+                cancelAnimationFrame(animationId);
+                return;
+            }
+
+            try {
+                const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const canvasStream = canvas.captureStream(30);
+                
+                const combinedStream = new MediaStream([
+                    canvasStream.getVideoTracks()[0],
+                    audioStream.getTracks()[0]
+                ]);
+
+                canvasRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm' });
+                videoChunks = [];
+
+                canvasRecorder.addEventListener('dataavailable', e => {
+                    if (e.data.size > 0) videoChunks.push(e.data);
+                });
+
+                mediaRecorder = new MediaRecorder(audioStream);
+                audioChunks = [];
+                mediaRecorder.addEventListener("dataavailable", event => audioChunks.push(event.data));
+
+                mediaRecorder.addEventListener("stop", () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    audioUrl = URL.createObjectURL(audioBlob);
+                    
+                    playBtn.style.display = "inline-block";
+                    saveBtn.style.display = "inline-block";
+                    timeCounterEl.style.display = "block";
+                    timeCounterEl.textContent = "0:00 / 0:00";
+                    recordBtn.textContent = "もういちど録音";
+                    recordBtn.classList.remove('recording');
+                    statusText.textContent = `きれいに とれたよ！`;
+                    
+                    audioStream.getTracks().forEach(track => track.stop());
+                });
+
+                drawCanvas();
+                canvasRecorder.start();
+                mediaRecorder.start();
+
+                recordBtn.textContent = "おわるときにおす";
+                recordBtn.classList.add('recording');
+                statusText.textContent = "こえをきいているよ...";
+                playBtn.style.display = "none";
+                saveBtn.style.display = "none";
+                timeCounterEl.style.display = "none";
+
+            } catch (err) {
+                console.error(err);
+                statusText.textContent = "マイクをきょかしてね";
+            }
+        });
+
+        function formatTime(seconds) {
+            if (isNaN(seconds)) return "0:00";
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // こえをきくボタン
+        playBtn.addEventListener('click', () => {
+            if (audioUrl) {
+                if (currentAudio) {
+                    currentAudio.pause();
+                }
+
+                currentAudio = new Audio(audioUrl);
+                
+                currentAudio.addEventListener('loadedmetadata', () => {
+                    timeCounterEl.textContent = `0:00 / ${formatTime(currentAudio.duration)}`;
+                });
+
+                currentAudio.addEventListener('timeupdate', () => {
+                    timeCounterEl.textContent = `${formatTime(currentAudio.currentTime)} / ${formatTime(currentAudio.duration)}`;
+                });
+
+                currentAudio.play();
+                statusText.textContent = "さいせいちゅう♪";
+
+                currentAudio.onended = () => {
+                    statusText.textContent = "ききおわったよ！";
+                    timeCounterEl.textContent = `${formatTime(currentAudio.duration)} / ${formatTime(currentAudio.duration)}`;
+                };
+            }
+        });
+
+        // 動画ファイルとしてダウンロード保存
+        saveBtn.addEventListener('click', () => {
+            if (videoChunks.length === 0) return;
+
+            const videoBlob = new Blob(videoChunks, { type: 'video/webm' });
+            const videoDownloadUrl = URL.createObjectURL(videoBlob);
+
+            const a = document.createElement('a');
+            a.href = videoDownloadUrl;
+            
+            const now = new Date();
+            const dateStr = now.getFullYear() + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0');
+            a.download = `${dateStr}_${currentAnimal.reading}_こえ.webm`;
+            
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            statusText.textContent = "ローカルに ほぞんしたよ！";
+        });
+    </script>
+
+</body>
+</html>
